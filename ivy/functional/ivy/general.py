@@ -183,9 +183,9 @@ def get_referrers_recursive(
     item: object,
     *,
     depth: int = 0,
-    max_depth: int = None,
-    seen_set: set = None,
-    local_set: set = None,
+    max_depth: Optional[int] = None,
+    seen_set: Optional[set] = None,
+    local_set: Optional[set] = None,
 ) -> ivy.Container:
     """
     Recursively retrieve referrers for an object.
@@ -2341,7 +2341,7 @@ def stable_pow(
     exponent: Union[Number, ivy.Array, ivy.NativeArray],
     /,
     *,
-    min_base: float = None,
+    min_base: Optional[float] = None,
 ) -> Any:
     """
     Raise the base by the power, with ivy.min_base added to the base when exponent > 1
@@ -4390,6 +4390,7 @@ def is_ivy_nested_array(x: Any, /) -> bool:
     ----------
     x
         The input to check
+
     Returns
     -------
     ret
