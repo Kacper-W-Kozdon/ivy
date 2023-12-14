@@ -174,9 +174,18 @@ def max_pool2d(
             )
         else:
             padding = "VALID"
-    res = tf.nn.pool(
-        x, kernel, "MAX", strides, padding, dilations=dilation, data_format=data_format
-    )
+    if any(d > 1 for d in dilation):
+        res = tf.nn.pool(
+            x,
+            kernel,
+            "MAX",
+            strides,
+            padding,
+            dilations=dilation,
+            data_format=data_format,
+        )
+    else:  # faster
+        res = tf.nn.max_pool2d(x, kernel, strides, padding, data_format=data_format)
 
     if depth_pooling:
         res = tf.transpose(res, (0, 2, 3, 1))
@@ -1293,9 +1302,9 @@ def static_output_shape(input_shape, shape, axes):
 def _right_pad_or_crop(tensor, shape):
     input_shape = tf.shape(tensor)
     shape = tf.convert_to_tensor(shape, dtype=tf.dtypes.int32)
-    with tf.control_dependencies([
-        tf.debugging.assert_less_equal(tf.size(shape), tf.size(input_shape))
-    ]):
+    with tf.control_dependencies(
+        [tf.debugging.assert_less_equal(tf.size(shape), tf.size(input_shape))]
+    ):
         shape = tf.identity(shape)
     shape = tf.concat([input_shape[: tf.size(input_shape) - tf.size(shape)], shape], 0)
 

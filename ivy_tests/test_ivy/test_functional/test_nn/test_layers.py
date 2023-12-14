@@ -465,7 +465,6 @@ def _x_and_filters(
     depthwise=False,
     general=False,
     bias=False,
-    filter_format=None,
 ):
     if not isinstance(dim, int):
         dim = draw(dim)
@@ -480,10 +479,14 @@ def _x_and_filters(
     output_channels = draw(st.integers(1, 3))
     group_list = [*range(1, 6)]
     if not transpose:
-        group_list = list(filter(lambda x: (input_channels % x == 0), group_list))
+        group_list = list(
+            filter(
+                lambda x: (input_channels % x == 0 and x <= output_channels), group_list
+            )
+        )
     else:
         group_list = list(filter(lambda x: (output_channels % x == 0), group_list))
-    fc = draw(st.sampled_from(group_list)) if general else 1
+    fc = draw(st.sampled_from(group_list))
     strides = draw(
         st.one_of(
             st.integers(1, 3), st.lists(st.integers(1, 3), min_size=dim, max_size=dim)
@@ -551,7 +554,7 @@ def _x_and_filters(
             filter_shape = filter_shape + (input_channels // fc, output_channels)
         else:
             input_channels = input_channels * fc
-            filter_shape = filter_shape + (input_channels, output_channels // fc)
+            filter_shape = filter_shape + (output_channels // fc, input_channels)
     else:
         filter_shape = filter_shape + (input_channels,)
     channel_first = True
@@ -596,8 +599,8 @@ def _x_and_filters(
             )
         )
         dilations = (dilations, x_dilation)
-    if filter_format is not None:
-        filter_format = draw(filter_format)
+    if not depthwise:
+        filter_format = draw(st.sampled_from(["channel_first", "channel_last"]))
         if filter_format == "channel_first":
             filters = np.transpose(filters, (-1, -2, *range(dim)))
     ret = (
@@ -610,13 +613,13 @@ def _x_and_filters(
         padding,
     )
     ret = ret + (output_shape, fc) if transpose else ret + (fc,)
-    ret = ret + (filter_format,) if filter_format is not None else ret
+    if not depthwise:
+        ret = ret + (filter_format,)
     if bias:
         return ret + (b,)
     return ret
 
 
-# filter_format not in conv_general_transpose
 # output_shape not in conv_general_dilated
 @st.composite
 def _x_and_filters_and_transpose(
@@ -624,22 +627,17 @@ def _x_and_filters_and_transpose(
     dim: int = 2,
     general=False,
     bias=False,
-    filter_format=None,
 ):
     transpose = draw(st.booleans())
-    if not transpose:
-        filter_format = st.sampled_from(["channel_last", "channel_first"])
     all_args = draw(
         _x_and_filters(
             dim=dim,
             general=general,
             bias=bias,
-            filter_format=filter_format,
             transpose=transpose,
         )
     )
     output_shape = None
-    filter_format = "channel_last"
     if transpose:
         (
             dtype,
@@ -651,6 +649,7 @@ def _x_and_filters_and_transpose(
             pad,
             output_shape,
             fc,
+            filter_format,
             bias,
         ) = all_args
     else:
@@ -925,7 +924,6 @@ def test_conv(*, dims, x_f_d_df_tr, test_flags, backend_fw, fn_name, on_device):
     x_f_d_df=_x_and_filters(
         dim=1,
         bias=True,
-        filter_format=st.sampled_from(["channel_last", "channel_first"]),
     ),
     ground_truth_backend="jax",
 )
@@ -986,6 +984,7 @@ def test_conv1d_transpose(*, x_f_d_df, test_flags, backend_fw, fn_name, on_devic
         pad,
         output_shape,
         fc,
+        filter_format,
         bias,
     ) = x_f_d_df
     # tensorflow does not work with dilations > 1 on cpu
@@ -1003,6 +1002,7 @@ def test_conv1d_transpose(*, x_f_d_df, test_flags, backend_fw, fn_name, on_devic
         strides=stride,
         padding=pad,
         output_shape=output_shape,
+        filter_format=filter_format,
         data_format=data_format,
         dilations=dilations,
         bias=bias,
@@ -1015,7 +1015,6 @@ def test_conv1d_transpose(*, x_f_d_df, test_flags, backend_fw, fn_name, on_devic
     x_f_d_df=_x_and_filters(
         dim=2,
         bias=True,
-        filter_format=st.sampled_from(["channel_last", "channel_first"]),
     ),
     ground_truth_backend="jax",
 )
@@ -1075,6 +1074,7 @@ def test_conv2d_transpose(*, x_f_d_df, test_flags, backend_fw, fn_name, on_devic
         pad,
         output_shape,
         fc,
+        filter_format,
         bias,
     ) = x_f_d_df
     assume(isinstance(pad, str) or backend_fw in ["torch", "tensorflow"])
@@ -1092,6 +1092,7 @@ def test_conv2d_transpose(*, x_f_d_df, test_flags, backend_fw, fn_name, on_devic
         strides=stride,
         padding=pad,
         output_shape=output_shape,
+        filter_format=filter_format,
         data_format=data_format,
         dilations=dilations,
         bias=bias,
@@ -1104,7 +1105,6 @@ def test_conv2d_transpose(*, x_f_d_df, test_flags, backend_fw, fn_name, on_devic
     x_f_d_df=_x_and_filters(
         dim=3,
         bias=True,
-        filter_format=st.sampled_from(["channel_last", "channel_first"]),
     ),
     ground_truth_backend="jax",
 )
@@ -1164,6 +1164,7 @@ def test_conv3d_transpose(*, x_f_d_df, test_flags, backend_fw, fn_name, on_devic
         pad,
         output_shape,
         fc,
+        filter_format,
         bias,
     ) = x_f_d_df
     _assume_tf_dilation_gt_1(backend_fw, on_device, dilations)
@@ -1180,6 +1181,7 @@ def test_conv3d_transpose(*, x_f_d_df, test_flags, backend_fw, fn_name, on_devic
         strides=stride,
         padding=pad,
         output_shape=output_shape,
+        filter_format=filter_format,
         data_format=data_format,
         dilations=dilations,
         bias=bias,
@@ -1194,9 +1196,8 @@ def test_conv3d_transpose(*, x_f_d_df, test_flags, backend_fw, fn_name, on_devic
         dim=st.shared(st.integers(1, 3), key="dims"),
         general=True,
         bias=True,
-        filter_format=st.sampled_from(["channel_last", "channel_first"]),
     ),
-    ground_truth_backend="jax",
+    ground_truth_backend="torch",
 )
 def test_conv_general_dilated(
     *, dims, x_f_d_df, test_flags, backend_fw, fn_name, on_device
@@ -1254,6 +1255,7 @@ def test_conv_general_transpose(
         pad,
         output_shape,
         fc,
+        filter_format,
         bias,
     ) = dim_x_f_d_df
     assume(isinstance(pad, str) or backend_fw in ["torch", "tensorflow"])
@@ -1271,8 +1273,9 @@ def test_conv_general_transpose(
         strides=stride,
         padding=pad,
         dims=dims,
-        output_shape=output_shape,
+        filter_format=filter_format,
         data_format=data_format,
+        output_shape=output_shape,
         dilations=dilations,
         feature_group_count=fc,
         bias=bias,
