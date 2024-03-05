@@ -124,8 +124,6 @@ def reshape(
         ]
     if order == "F":
         return _reshape_fortran_tf(x, shape)
-    if isinstance(shape, (int, list, tuple)):
-        shape = tf.TensorShape(shape)
     return tf.reshape(x, shape)
 
 
@@ -228,7 +226,6 @@ def split(
         num_or_size_splits = int(dim_size)
     if isinstance(num_or_size_splits, (tf.Tensor, tf.Variable)):
         num_or_size_splits = tf.cast(num_or_size_splits, tf.int32)
-        num_or_size_splits = num_or_size_splits.numpy().tolist()
     elif isinstance(num_or_size_splits, int) and with_remainder:
         num_chunks = x.shape[axis] / num_or_size_splits
         num_chunks_int = math.floor(num_chunks)
